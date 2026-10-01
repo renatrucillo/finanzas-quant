@@ -26,7 +26,7 @@ MACRO_TICKERS = {
 }
 
 # 3. Rango de fechas (formato 'YYYY-MM-DD'). Si END_DATE es None, usa la fecha de hoy.
-START_DATE = "2020-01-01"
+START_DATE = "2007-01-01"
 END_DATE = None  # Ej: '2025-12-31' o None para fecha actual
 
 # 4. Ruta del archivo de salida
