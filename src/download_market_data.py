@@ -104,11 +104,41 @@ def download_and_process_data(
     print(f"Período cubierto: {df_cleaned.index.min().date()} a {df_cleaned.index.max().date()}")
 
     # -------------------------------------------------------------------------
-    # GUARDADO EN PARQUET
+    # GUARDADO EN PARQUET (Precios ajustados estándar)
     # -------------------------------------------------------------------------
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     df_cleaned.to_parquet(output_path, engine="pyarrow")
-    print(f"Dataset guardado exitosamente en: {output_path}")
+    print(f"Dataset de precios ajustados guardado exitosamente en: {output_path}")
+
+    # -------------------------------------------------------------------------
+    # GUARDADO EN PARQUET DE PANEL OHLCV COMPLETO (Para Parkinson, GK, YZ)
+    # -------------------------------------------------------------------------
+    try:
+        ohlcv_dict = {}
+        # Procesar activos con OHLCV
+        for sym in tickers:
+            for field in ["Open", "High", "Low", "Close", "Adj Close", "Volume"]:
+                if (field in raw_data.columns) and (sym in raw_data[field].columns):
+                    ohlcv_dict[f"{sym}_{field.replace(' ', '_')}"] = raw_data[field][sym]
+
+        # Agregar variables macro (Close o Adj Close)
+        for sym, name in macro_mapping.items():
+            if ("Adj Close" in raw_data.columns) and (sym in raw_data["Adj Close"].columns):
+                ohlcv_dict[name] = raw_data["Adj Close"][sym]
+            elif ("Close" in raw_data.columns) and (sym in raw_data["Close"].columns):
+                ohlcv_dict[name] = raw_data["Close"][sym]
+
+        df_ohlcv = pd.DataFrame(ohlcv_dict, index=raw_data.index)
+        df_ohlcv.sort_index(inplace=True)
+        if df_ohlcv.index.tz is not None:
+            df_ohlcv.index = df_ohlcv.index.tz_localize(None)
+
+        df_ohlcv = df_ohlcv.ffill().bfill().dropna()
+        ohlcv_path = Path(output_path).parent / "panel_ohlcv.parquet"
+        df_ohlcv.to_parquet(ohlcv_path, engine="pyarrow")
+        print(f"Dataset OHLCV completo guardado exitosamente en: {ohlcv_path}")
+    except Exception as e:
+        print(f"Aviso: no se pudo guardar panel_ohlcv.parquet: {e}")
 
     return df_cleaned
 
