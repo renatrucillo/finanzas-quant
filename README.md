@@ -10,6 +10,7 @@ Pipeline en Python para la descarga automática, limpieza, alineación de series
 ├── data/
 │   └── panel_activos_macro.parquet  # Dataset consolidado y limpio en formato columnar
 ├── docs/
+│   ├── esquema_tp.md                # 📄 Especificación metodológica y arquitectura del TP
 │   ├── clase*.pdf                   # Diapositivas teóricas y prácticas del curso
 │   └── clase*.html                  # Versiones exportadas en HTML
 ├── notebooks/
@@ -23,6 +24,8 @@ Pipeline en Python para la descarga automática, limpieza, alineación de series
 ├── README.md                        # Documentación general del repositorio
 └── requirements.txt                 # Dependencias del proyecto
 ```
+
+> 📖 Para consultar la especificación académica completa, hipótesis, modelos y fases de desarrollo, ver [**`docs/esquema_tp.md`**](docs/esquema_tp.md).
 
 ---
 
