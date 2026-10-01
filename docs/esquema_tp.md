@@ -168,10 +168,10 @@ En lugar de utilizar algoritmos de clustering genéricos no financieros (como K-
 ## 📌 Checklist de Tareas del Proyecto (Plan de Acción)
 
 - [x] **Infraestructura y Pipeline de Datos Base:** Repositorio estructurado y script funcional (`src/download_market_data.py`) guardando en `data/panel_activos_macro.parquet`.
-- [ ] **Módulo 1 (`src/features.py`):** GJR-GARCH(1,1), proceso OU de la estructura temporal de VIX y diferenciación fraccionaria.
-- [ ] **Módulo 2 (`src/pricing.py`):** Motor Black-Scholes analítico vectorizado y cálculo de Griegas.
-- [ ] **Módulo 3 (`src/meta_labeling.py`):** Etiquetado por Triple Barrera, Purged K-Fold con Embargo y entrenamiento de Regresión Logística / Random Forest.
-- [ ] **Módulo 4 (`src/backtest.py`):** Simulación Walk-Forward comparativa (B&H vs Estático vs Adaptativo) y cálculo de métricas (Sharpe, Sortino, MaxDD, DSR).
+- [x] **Módulo 1 (`src/build_features_phase1.py`):** GJR-GARCH(1,1), proceso OU de la estructura temporal de VIX, Filtro de Kalman y diferenciación fraccionaria.
+- [x] **Módulo 2 (`src/pricing.py`):** Motor Black-Scholes analítico vectorizado, cálculo de Griegas, inversión de strike por Delta y VRP.
+- [x] **Módulo 3 (`src/meta_labeling.py`):** Etiquetado por Triple Barrera, Purged K-Fold con Embargo y entrenamiento de Regresión Logística / Random Forest.
+- [x] **Módulo 4 (`src/backtest.py`):** Simulación Walk-Forward comparativa (B&H vs Estático vs Adaptativo) y cálculo de métricas (Sharpe, Sortino, MaxDD, PSR, DSR).
 - [ ] **Módulo 5 (`src/cli_advisor.py`):** Generador de recomendaciones en vivo.
-- [ ] **Notebooks y Visualizaciones:** Curvas de equity, News Impact Curves, matrices de confusión y gráficos de regímenes.
-- [ ] **Póster y Entrega Final:** Redacción formal para la cátedra de Finanzas Cuantitativas (FCEN-UBA).
+- [x] **Visualizaciones y Gráficos (`src/generate_visualizations.py`):** Curvas de equity panel, drawdowns subacuáticos, dinámicas de VRP, importancias de features y regímenes de estrés.
+- [x] **Póster y Entrega Final:** Informe final exhaustivo en `reports/informe_final_tp.md` con tablas de resultados, auditoría anti-overfitting y guía para el póster.

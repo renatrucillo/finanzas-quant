@@ -49,10 +49,9 @@ def fractional_diff(
     values = s.values
     diff_vals = np.full(n, np.nan)
 
-    # Convolución causal sin lookahead
-    for i in range(k_len - 1, n):
-        window = values[i - k_len + 1 : i + 1]
-        diff_vals[i] = np.dot(weights, window)
+    # Convolución causal sin lookahead optimizada con np.convolve
+    conv_vals = np.convolve(values, weights[::-1], mode="valid")
+    diff_vals[k_len - 1 :] = conv_vals
 
     res = pd.Series(diff_vals, index=s.index, name=f"{series.name}_fracdiff_d{d:.2f}")
     return res

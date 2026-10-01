@@ -42,9 +42,10 @@ def kalman_beta_1d(
     spread_series : pd.Series
         Serie de residuos: e_t = y_t - beta_{t-1} * x_t (sin lookahead).
     """
-    common_idx = y.index.intersection(x.index)
-    y_aligned = y.loc[common_idx]
-    x_aligned = x.loc[common_idx]
+    valid = (~y.isna()) & (~x.isna())
+    y_aligned = y.loc[valid]
+    x_aligned = x.loc[valid]
+    common_idx = y_aligned.index
 
     if r is None:
         r = float(y_aligned.var() * 0.5)
@@ -74,9 +75,9 @@ def kalman_beta_1d(
 
         beta_k[t] = b
 
-    beta_series = pd.Series(beta_k, index=common_idx, name="beta_kalman")
+    beta_series = pd.Series(beta_k, index=common_idx, name="beta_kalman").reindex(y.index).ffill()
     # Residuo con beta rezagado (shift 1) para garantizar CERO lookahead bias
-    spread_series = y_aligned - beta_series.shift(1) * x_aligned
+    spread_series = y - beta_series.shift(1) * x
     spread_series.name = "spread_kalman"
 
     return beta_series, spread_series
@@ -100,9 +101,10 @@ def kalman_capm_2d(
     resid_series : pd.Series
         Residuo sin lookahead: y_t - (alpha_{t-1} + beta_{t-1} * x_t)
     """
-    common_idx = y.index.intersection(x.index)
-    y_aligned = y.loc[common_idx]
-    x_aligned = x.loc[common_idx]
+    valid = (~y.isna()) & (~x.isna())
+    y_aligned = y.loc[valid]
+    x_aligned = x.loc[valid]
+    common_idx = y_aligned.index
 
     if r is None:
         r = float(y_aligned.var() * 0.5)
@@ -138,11 +140,11 @@ def kalman_capm_2d(
         states,
         index=common_idx,
         columns=["alpha_kalman", "beta_kalman"]
-    )
+    ).reindex(y.index).ffill()
     # Residuo rezagado (t-1)
     alpha_lag = states_df["alpha_kalman"].shift(1)
     beta_lag = states_df["beta_kalman"].shift(1)
-    resid_series = y_aligned - (alpha_lag + beta_lag * x_aligned)
+    resid_series = y - (alpha_lag + beta_lag * x)
     resid_series.name = "idiosyncratic_resid"
 
     return states_df, resid_series
