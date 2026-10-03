@@ -46,7 +46,7 @@ IBKR no da historia de opciones vencidas: solo hay calls vigentes (20–70 DTE).
 """)
 C("""
 from scipy.optimize import brentq
-from src.pricing import black_scholes_call_price as bs
+from poster.src.strategy import black_scholes_call_price as bs
 ib = load_ibkr(); s = ib[ib.symbol == "SPY"].copy()
 s["date"] = pd.to_datetime(s["date"]); s["expiration"] = pd.to_datetime(s["expiration"])
 s["T"] = (s.expiration - s.date).dt.days / 365.0
