@@ -10,17 +10,23 @@ Reglas (congeladas antes de mirar resultados):
 """
 from __future__ import annotations
 
-import sys
+import sys  # noqa
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-from src.pricing import black_scholes_call_price  # noqa: E402  (utilidad del repo, admite dividendo continuo q)
+from scipy.stats import norm
+
+
+def black_scholes_call_price(S, K, T, r, sigma, q=0.0):
+    """Call europea Black-Scholes-Merton con dividendo continuo q (Hull, cap. 15)."""
+    S, K, T, sigma = (np.maximum(np.asarray(x, dtype=float), 1e-6) for x in (S, K, T, sigma))
+    sq = sigma * np.sqrt(T)
+    d1 = (np.log(S / K) + (r - q + 0.5 * sigma**2) * T) / sq
+    d2 = d1 - sq
+    return np.maximum(S * np.exp(-q * T) * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2), 0.0)
 
 # Calibración IBKR (SPY, calls 20-70 DTE, volumen>=10, jun-sep 2026): IV(K)/VIX ≈ A + B*ln(K/S)
 SKEW_A, SKEW_B = 0.88, -4.33
