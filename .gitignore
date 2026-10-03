@@ -50,3 +50,11 @@ Thumbs.db
 # Large Data files (opcional: descomentar si no se desea versionar datasets pesados)
 # *.parquet
 # data/
+
+# LaTeX build
+poster/overleaf/*.aux
+poster/overleaf/*.log
+poster/overleaf/*.fls
+poster/overleaf/*.fdb_latexmk
+poster/overleaf/*.out
+poster/overleaf/*.synctex.gz

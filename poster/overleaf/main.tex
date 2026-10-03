@@ -1,0 +1,189 @@
+%% Póster TP final — Finanzas Cuantitativas (FCEN-UBA)
+%% Compilar con pdfLaTeX (Overleaf: Menu > Compiler > pdfLaTeX). Los números salen de numeros.tex (generado por el código).
+\documentclass[25pt, a0paper, portrait, margin=0mm, innermargin=14mm, blockverticalspace=9mm, colspace=14mm, subcolspace=8mm]{tikzposter}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs, array}
+\usepackage{enumitem}
+\usepackage{tikz}
+\usetikzlibrary{positioning, arrows.meta, shapes.geometric}
+\input{numeros.tex}
+
+% ---------- paleta (dataviz: azul = Buy & Hold, naranja = CC estático, aqua = CC modelo)
+\definecolor{cBH}{HTML}{2A78D6}
+\definecolor{cStat}{HTML}{EB6834}
+\definecolor{cMod}{HTML}{1BAF7A}
+\definecolor{ink}{HTML}{0B0B0B}
+\definecolor{ink2}{HTML}{52514E}
+
+\definecolorstyle{CCStyle}{
+  \definecolor{colorOne}{HTML}{16457F}
+  \definecolor{colorTwo}{HTML}{EB6834}
+  \definecolor{colorThree}{HTML}{1BAF7A}
+}{
+  \colorlet{backgroundcolor}{white}
+  \colorlet{framecolor}{colorOne}
+  \colorlet{titlefgcolor}{white}
+  \colorlet{titlebgcolor}{colorOne}
+  \colorlet{blocktitlebgcolor}{colorOne}
+  \colorlet{blocktitlefgcolor}{white}
+  \colorlet{blockbodybgcolor}{white}
+  \colorlet{blockbodyfgcolor}{ink}
+  \colorlet{innerblocktitlebgcolor}{colorOne}
+  \colorlet{innerblocktitlefgcolor}{white}
+  \colorlet{innerblockbodybgcolor}{white!94!colorOne}
+  \colorlet{innerblockbodyfgcolor}{ink}
+  \colorlet{notefgcolor}{ink}
+  \colorlet{notebgcolor}{white!90!colorTwo}
+  \colorlet{noteframecolor}{colorTwo}
+}
+\usetheme{Default}
+\usecolorstyle{CCStyle}
+\setlength{\parindent}{0pt}
+
+\newcommand{\fig}[2][1.0]{\begin{center}\includegraphics[width=#1\linewidth]{figures/#2}\end{center}}
+\newcommand{\figcap}[1]{{\small\color{ink2}\textit{#1}}\par}
+
+\title{\parbox{0.95\linewidth}{\centering\normalfont\bfseries\fontsize{58}{66}\selectfont ¿Cuándo conviene vender una Covered Call?\\[3mm]\fontsize{34}{40}\selectfont Pronósticos de volatilidad vs.\ volatilidad implícita en SPY y QQQ (2008--2026)}}
+\author{\normalfont\fontsize{30}{34}\selectfont [Autores del grupo]}
+\institute{\normalfont\fontsize{26}{30}\selectfont Finanzas Cuantitativas --- Prof.\ Guido Schifani\ $\cdot$\ FCEN, Universidad de Buenos Aires}
+
+\begin{document}
+\maketitle
+
+\begin{columns}
+% =====================================================================  COLUMNA 1
+\column{0.34}
+
+\block{Volatilidad: realizada vs.\ implícita}{
+  La \textbf{volatilidad} $\sigma$ mide cuánto se mueve un activo (desvío anualizado de sus retornos).
+  \begin{itemize}[leftmargin=*, itemsep=2mm]
+    \item \textbf{Realizada}: la que efectivamente ocurre en el mes.
+    \item \textbf{Implícita (IV)}: la que el mercado \textit{cobra hoy} en el precio de las opciones (VIX para el S\&P~500, VXN para el Nasdaq-100).
+  \end{itemize}
+  En promedio la IV supera a la realizada: es la \textbf{prima de riesgo de varianza}
+  (SPY: \SPYIV{} vs.\ \SPYRV{}, $\approx$\,\SPYVRP{}; QQQ: \QQQIV{} vs.\ \QQQRV{}). Quien vende opciones cobra ese diferencial\ldots{} y asume el riesgo de cola.
+}
+
+\block{Covered Call}{
+  Comprar el activo y \textbf{vender una call} (strike $K$): se cobra una prima, a cambio de renunciar a la suba por encima de $K$.
+  \fig[0.92]{fig_payoff.pdf}
+  Conviene si la call está \textit{cara}: IV mayor que la volatilidad que realmente vamos a ver.
+}
+
+\block{Pregunta y objetivo}{
+  \innerblock{Hipótesis}{\centering Vender la call \textbf{solo si} nuestro pronóstico de volatilidad $\hat\sigma$ es \textbf{menor} que la IV.}
+  \vspace{4mm}
+  \begin{enumerate}[leftmargin=*, itemsep=1.5mm]
+    \item Pronosticar la volatilidad con distintos modelos y compararlos con la IV.
+    \item Armar un \textbf{modelo propio} que decida \textit{cuándo} vender y \textit{a qué strike}.
+    \item Comparar su retorno contra \textbf{Covered Call estático} y \textbf{Buy \& Hold}.
+    \item Concluir si conviene, en general y según el activo.
+  \end{enumerate}
+}
+
+\block{Activos y datos}{
+  \textbf{SPY} (S\&P~500, IV $=$ VIX) y \textbf{QQQ} (Nasdaq-100, IV $=$ VXN).
+  NVDA queda afuera: no existe serie histórica de su IV.\\[2mm]
+  \textbf{224 ciclos mensuales} fuera de muestra (ene-2008 a sep-2026; 2007 de calentamiento), con la crisis de 2008, el Covid y 2022.\\[2mm]
+  {\small Datos: Excel de la cátedra (SPY, VIX), yfinance (QQQ, VXN, tasa), IBKR (calls de SPY para calibrar el skew).}
+}
+
+\block{Método}{
+  \begin{center}
+  \begin{tikzpicture}[node distance=4.5mm, every node/.style={font=\large},
+     box/.style={draw=colorOne, fill=white!94!colorOne, rounded corners=3mm, thick, align=center, minimum width=0.8\linewidth, minimum height=10mm},
+     arr/.style={-{Latex[length=4mm]}, very thick, color=ink2}]
+    \node[box] (a) {Retornos OHLC hasta $t_0\!-\!1$};
+    \node[box, below=of a] (b) {5 modelos de volatilidad $\to$ \textbf{Ensamble} $\hat\sigma$};
+    \node[box, below=of b, draw=cMod, fill=cMod!10] (c) {¿$\hat\sigma < \text{IV}$?\; $\Rightarrow$ vender};
+    \node[box, below=of c, draw=cMod, fill=cMod!10] (d) {Strike $K=S_0\,e^{\,z\,\hat\sigma\sqrt{T}}$, $z=0{,}5$};
+    \node[box, below=of d] (e) {Precio Black-Scholes con IV del skew de IBKR};
+    \node[box, below=of e] (f) {P\&L del ciclo (al vencimiento)};
+    \foreach \i/\j in {a/b,b/c,c/d,d/e,e/f} \draw[arr] (\i) -- (\j);
+  \end{tikzpicture}
+  \end{center}
+  {\small Todos los modelos son \textbf{walk-forward} (ventana expansiva, sin ver el futuro). Costo: 2\% de la prima.}
+}
+
+% =====================================================================  COLUMNA 2
+\column{0.33}
+
+\block{¿Cuánto vale la prima? IV vs.\ realizada}{
+  \fig{fig_vrp.pdf}
+  \figcap{La IV (naranja) casi siempre está por encima de la volatilidad realizada del ciclo (azul): ahí está el margen de la Covered Call.}
+}
+
+\block{Los cinco modelos de volatilidad}{
+  \small
+  \renewcommand{\arraystretch}{1.3}
+  \begin{tabular}{@{}p{0.25\linewidth}p{0.70\linewidth}@{}}
+    \toprule
+    \textbf{Modelo} & \textbf{Idea} \\ \midrule
+    Rolling 21d & desvío de los últimos 21 retornos (ingenuo) \\
+    EWMA & $\sigma^2_t=\lambda\sigma^2_{t-1}+(1-\lambda)r^2_{t-1}$, $\lambda=0{,}94$ \\
+    GJR-GARCH & $\sigma^2_t=\omega+(\alpha+\gamma\mathbf 1_{r<0})r^2_{t-1}+\beta\sigma^2_{t-1}$ (asimetría) \\
+    HAR-RV & regresión sobre RV diaria, semanal y mensual (memoria larga) \\
+    Kalman & log-varianza latente $=$ AR(1) $+$ ruido; filtro, no \textit{smoother} \\
+    Ensamble & promedio de las varianzas de los 5 modelos \\ \bottomrule
+  \end{tabular}
+}
+
+\block{¿Qué modelo predice mejor?}{
+  \fig{fig_errors.pdf}
+  \figcap{Error QLIKE fuera de muestra (menor es mejor). El Kalman, estimado por máxima verosimilitud, no suaviza de más: empata con la IV. Los modelos ingenuos son los peores.}
+}
+
+\block{La señal: IV $-$ $\hat\sigma$}{
+  \fig{fig_signal.pdf}
+  \figcap{Verde: el modelo vende (call cara). Naranja: no vende. El modelo se retira en los picos de estrés de 2008, 2020 y 2025.}
+}
+
+% =====================================================================  COLUMNA 3
+\column{0.33}
+
+\block{Resultado: crecimiento de \$1}{
+  \fig{fig_equity.pdf}
+  \figcap{Escala logarítmica, retorno total (con dividendos), 2008--2026.}
+}
+
+\block{Estrategias comparadas}{
+  \small
+  \renewcommand{\arraystretch}{1.25}
+  \setlength{\tabcolsep}{4pt}
+  \input{tabla_estrategias.tex}
+}
+
+\block{¿De dónde viene la mejora? Timing vs.\ strike}{
+  \fig[0.97]{fig_ablation.pdf}
+  \figcap{Sharpe. ``Solo strike'': vende siempre pero con $K$ del modelo. ``Solo timing'': vende cuando $\hat\sigma<$ IV con $K$ ATM.}
+}
+
+\block{Conclusiones}{
+  \begin{itemize}[leftmargin=*, itemsep=3mm]
+    \item \textbf{Contra el Covered Call estático, el modelo gana}: \SPYVsStat{} por año en SPY \SPYVsStatCI{} y \QQQVsStat{} en QQQ \QQQVsStatCI{} (IC 95\%).
+    \item \textbf{Contra Buy \& Hold, no gana en retorno}: SPY \SPYVsBH{} \SPYVsBHCI{} (indistinguible de cero) y QQQ \QQQVsBH{} \QQQVsBHCI{}. Reduce la volatilidad (SPY: \SPYModVol{} vs.\ \SPYBHVol{}) pero no protege de los crashes (MaxDD similar).
+    \item \textbf{Depende del activo}: en SPY el \textit{strike} aporta casi todo (Sharpe \SPYStrikeSharpe{} vs.\ \SPYTimingSharpe{} solo timing); en QQQ el \textit{timing} también suma. QQQ crece más: el techo duele más.
+    \item \textbf{Regla práctica}: en un mercado alcista, la Covered Call con modelo es un buen \textit{reductor de volatilidad}, no un generador de retorno extra.
+  \end{itemize}
+  \vspace{2mm}
+  {\small \textbf{Limitaciones}: IV del índice (no de la opción), skew calibrado con una sola ventana de 2026, precios teóricos sin \textit{bid-ask} real, costos supuestos, solo 2 activos.}
+}
+
+\block{Referencias}{
+  \footnotesize
+  Hull (2018), \textit{Options, Futures and Other Derivatives}. \;
+  Glosten, Jagannathan \& Runkle (1993), \textit{J.\ Finance}. \;
+  J.P.\ Morgan/Reuters (1996), \textit{RiskMetrics}. \;
+  Corsi (2009), \textit{J.\ Financial Econometrics}. \;
+  Poon \& Granger (2003), \textit{J.\ Econ.\ Literature}. \;
+  Bollerslev, Tauchen \& Zhou (2009), \textit{Rev.\ Financial Studies}. \;
+  Whaley (2002), \textit{J.\ Derivatives} (BXM). \;
+  Israelov \& Nielsen (2015), \textit{Financial Analysts J.} (Covered Calls Uncovered). \;
+  López de Prado (2020), \textit{Machine Learning for Asset Managers}.
+}
+\end{columns}
+\end{document}
