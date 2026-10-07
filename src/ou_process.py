@@ -1,121 +1,91 @@
 """
 Módulo de Modelado Ornstein-Uhlenbeck (Clase 7)
 ==============================================
-Calibra el proceso estocástico continuo de reversión a la media:
+Calibra el proceso de reversión a la media:
     dS_t = kappa * (theta - S_t) * dt + sigma_ou * dW_t
 
-Permite calcular:
-- theta: Media de equilibrio de largo plazo
-- kappa: Velocidad de reversión a la media
-- half-life: t_{1/2} = ln(2) / kappa (días para disipar la mitad de un shock)
-- s-score: Puntuación estandarizada para tipificar regímenes de volatilidad
+Discretización exacta: S_t = a + b S_{t-1} + eps_t, con b = e^{-kappa dt}, theta = a / (1 - b).
+- half-life: t_{1/2} = ln(2) / kappa
+- s-score: (S_t - theta) / sigma_eq, sigma_eq = sigma_eps / sqrt(1 - b^2)
+
+El estimador MCO de b está sesgado hacia abajo en muestras cortas (sesgo de Kendall ~ -(1+3b)/n),
+lo que subestima el half-life. Por defecto se corrige: b_adj = b + (1 + 3b) / n.
 """
 
-from typing import Dict, Tuple
+from typing import Dict
 import numpy as np
 import pandas as pd
 
 
-def calibrate_ou_ar1(
-    series: pd.Series,
-    dt: float = 1.0,
-) -> Dict[str, float]:
-    """
-    Calibra analíticamente los parámetros del proceso Ornstein-Uhlenbeck
-    ajustando una regresión AR(1): S_t = a + b * S_{t-1} + eps_t.
-    """
+def calibrate_ou_ar1(series: pd.Series, dt: float = 1.0, bias_correct: bool = True) -> Dict[str, float]:
+    """Calibra OU vía AR(1) por MCO (con corrección de sesgo de Kendall opcional)."""
     s = series.dropna()
     if len(s) < 10:
         raise ValueError("Serie temporal demasiado corta para calibrar OU.")
 
     s_curr = s.iloc[1:].values
     s_prev = s.iloc[:-1].values
+    n = len(s_curr)
 
-    # OLS cerrado
-    x = np.column_stack([np.ones_like(s_prev), s_prev])
-    beta_ols, residuals, _, _ = np.linalg.lstsq(x, s_curr, rcond=None)
-    a, b = beta_ols[0], beta_ols[1]
+    X = np.column_stack([np.ones_like(s_prev), s_prev])
+    (a, b), *_ = np.linalg.lstsq(X, s_curr, rcond=None)
+    b_raw = b
+    if bias_correct:
+        b = b + (1.0 + 3.0 * b) / n
+    b = float(np.clip(b, 1e-4, 0.9999))  # estacionariedad
+    # el intercepto se recalcula para conservar la media muestral con el b corregido
+    a = float(np.mean(s_curr) - b * np.mean(s_prev))
 
-    # Prevenir no-estacionariedad o divergencia (b debe ser < 1)
-    b_clipped = np.clip(b, 1e-4, 0.9999)
-
-    kappa = -np.log(b_clipped) / dt
-    theta = a / (1.0 - b_clipped)
-    residuals_arr = s_curr - (a + b_clipped * s_prev)
-    sigma_eps = float(np.std(residuals_arr, ddof=2))
-
-    # Varianza y desvío de equilibrio estacionario
-    sigma_eq = np.sqrt(sigma_eps ** 2 / (1.0 - b_clipped ** 2))
-    half_life = np.log(2.0) / kappa
+    kappa = -np.log(b) / dt
+    theta = a / (1.0 - b)
+    resid = s_curr - (a + b * s_prev)
+    sigma_eps = float(np.std(resid, ddof=2))
+    sigma_eq = sigma_eps / np.sqrt(1.0 - b**2)
 
     return {
-        "a": float(a),
-        "b": float(b),
+        "a": a,
+        "b": b,
+        "b_mco": float(b_raw),
         "kappa": float(kappa),
         "theta": float(theta),
-        "sigma_eps": float(sigma_eps),
+        "sigma_eps": sigma_eps,
         "sigma_eq": float(sigma_eq),
-        "half_life": float(half_life),
+        "half_life": float(np.log(2.0) / kappa),
     }
 
 
 def compute_rolling_ou_scores(
     series: pd.Series,
-    window: int = 60,
+    window: int = 252,
     dt: float = 1.0,
+    bias_correct: bool = True,
 ) -> pd.DataFrame:
     """
-    Calcula de forma rodante (rolling) los parámetros de Ornstein-Uhlenbeck y el s-score
-    sin lookahead bias (utilizando solo la información disponible hasta t-1 para calibrar).
+    Parámetros OU rodantes y s-score sin lookahead: en t se calibra con [t-window, t-1] y se evalúa S_t.
+
+    Regímenes (según la especificación del TP):
+        s < 0      -> calma (contango normal)
+        0 <= s < 2 -> alerta
+        s >= 2     -> estrés extremo (backwardation aguda)
     """
     s = series.dropna()
     n = len(s)
-    
-    thetas = np.full(n, np.nan)
-    kappas = np.full(n, np.nan)
-    half_lives = np.full(n, np.nan)
-    sigma_eqs = np.full(n, np.nan)
-    s_scores = np.full(n, np.nan)
-
+    cols = {k: np.full(n, np.nan) for k in ["ou_theta", "ou_kappa", "ou_half_life", "ou_sigma_eq", "ou_s_score"]}
     values = s.values
 
     for t in range(window, n):
-        window_slice = s.iloc[t - window:t]
         try:
-            params = calibrate_ou_ar1(window_slice, dt=dt)
-            thetas[t] = params["theta"]
-            kappas[t] = params["kappa"]
-            half_lives[t] = params["half_life"]
-            sigma_eqs[t] = params["sigma_eq"]
-
-            # s-score del día actual comparado contra los parámetros calibrados hasta ayer
-            current_val = values[t]
-            if params["sigma_eq"] > 1e-8:
-                s_scores[t] = (current_val - params["theta"]) / params["sigma_eq"]
-        except Exception:
+            p = calibrate_ou_ar1(s.iloc[t - window:t], dt=dt, bias_correct=bias_correct)
+        except ValueError:
             continue
+        cols["ou_theta"][t] = p["theta"]
+        cols["ou_kappa"][t] = p["kappa"]
+        cols["ou_half_life"][t] = p["half_life"]
+        cols["ou_sigma_eq"][t] = p["sigma_eq"]
+        if p["sigma_eq"] > 1e-8:
+            cols["ou_s_score"][t] = (values[t] - p["theta"]) / p["sigma_eq"]
 
-    df_ou = pd.DataFrame(
-        {
-            "spread_level": s,
-            "ou_theta": thetas,
-            "ou_kappa": kappas,
-            "ou_half_life": half_lives,
-            "ou_sigma_eq": sigma_eqs,
-            "ou_s_score": s_scores,
-        },
-        index=s.index,
-    )
-
-    # Clasificación categórica del régimen según s-score
-    # s < -1: Contango Fuerte / Muy Tranquilo
-    # -1 <= s < 0.5: Calma Normal
-    # 0.5 <= s < 2.0: Alerta / Backwardation Leve
-    # s >= 2.0: Shock Extremo / Backwardation Agudo
-    df_ou["regime_label"] = pd.cut(
-        df_ou["ou_s_score"],
-        bins=[-np.inf, -1.0, 0.5, 2.0, np.inf],
-        labels=["deep_contango", "normal_calm", "alert_backwardation", "extreme_shock"]
-    )
-
-    return df_ou
+    df = pd.DataFrame({"spread_level": s, **cols}, index=s.index)
+    df["regime_label"] = pd.cut(df["ou_s_score"], bins=[-np.inf, 0.0, 2.0, np.inf], right=False,
+                                labels=["calma", "alerta", "estres_extremo"])
+    return df

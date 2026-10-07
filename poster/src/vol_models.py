@@ -3,7 +3,7 @@
 En cada fecha de decisión t0 (cierre del vencimiento anterior) se usa SOLO información hasta
 la rueda t0-1 (pos0-1) para pronosticar la vol anualizada promedio de las próximas h ruedas.
 
-Modelos: rolling 21d, EWMA(0.94), GJR-GARCH(1,1)-t, HAR-RV (Corsi), Kalman (filtro, nunca smoother)
+Modelos: rolling 21d, EWMA(0.97), GJR-GARCH(1,1)-t, HAR-RV (Corsi), Kalman (filtro, nunca smoother)
 y ensamble (promedio de varianzas). La IV (VIX/VXN) se evalúa como referencia, no como modelo propio.
 """
 from __future__ import annotations
@@ -36,8 +36,11 @@ def f_rolling(r: np.ndarray, h: int, win: int = 21) -> float:
     return float(np.sqrt(np.var(r[-win:], ddof=1) * ANN))
 
 
-def f_ewma(r: np.ndarray, h: int, lam: float = 0.94) -> float:
-    """RiskMetrics: sigma2_{t+1} = lam*sigma2_t + (1-lam)*r_t^2 (pronóstico plano en h)."""
+def f_ewma(r: np.ndarray, h: int, lam: float = 0.97) -> float:
+    """RiskMetrics: sigma2_{t+1} = lam*sigma2_t + (1-lam)*r_t^2 (pronóstico plano en h).
+
+    lam = 0.97 es el valor de RiskMetrics para horizonte mensual (0.94 es el de horizonte diario).
+    """
     s2 = np.var(r[:30], ddof=1)
     for x in r:
         s2 = lam * s2 + (1 - lam) * x * x
@@ -168,7 +171,7 @@ def forecast_cycles(px: pd.DataFrame, iv: pd.Series, cycles: pd.DataFrame, kalma
         if len(r) < min_obs:
             continue
         h = int(c.h)
-        row = dict(t0=c.t0, texp=c.texp, h=h)
+        row = dict(t0=c.t0, texp=c.texp, h=h, cal=int(c.cal))
         row["Rolling21"] = f_rolling(r, h)
         row["EWMA"] = f_ewma(r, h)
         row["GJR-GARCH"] = f_gjr(r, h, gcache)

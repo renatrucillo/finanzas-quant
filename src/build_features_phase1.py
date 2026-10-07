@@ -9,7 +9,14 @@ Integra todos los módulos cuantitativos de la Fase 1:
 5. Diferenciación fraccionaria con memoria óptima d* (Clase 6).
 6. CAPM dinámico con Filtro de Kalman 2D para el panel de activos (Clase 4 y 7).
 7. Cálculo del Variance Risk Premium (VRP) implícito vs realizado.
-8. Exportación consolidada a data/features_phase1.parquet sin lookahead bias.
+8. Exportación consolidada a data/features_phase1.parquet.
+
+Todas las features son causales (el valor en t usa información hasta t, y los parámetros se
+estiman con datos pasados o con un período de entrenamiento inicial):
+- GJR-GARCH: pronóstico walk-forward (no el ajuste in-sample).
+- Kalman: varianzas por MLE en la ventana inicial de calibración.
+- OU: calibración rodante con [t-window, t-1].
+- Fracdiff: d* elegido solo con el período de entrenamiento (`frac_train_end`).
 """
 
 import sys
@@ -31,7 +38,7 @@ from src.volatility_estimators import (
 from src.kalman_filter import kalman_beta_1d, kalman_capm_2d
 from src.ou_process import compute_rolling_ou_scores
 from src.fracdiff import find_optimal_d
-from src.garch_model import fit_gjr_garch
+from src.garch_model import fit_gjr_garch, rolling_gjr_garch_forecast
 
 
 def build_phase1_dataset(
@@ -39,7 +46,8 @@ def build_phase1_dataset(
     output_path: str = str(ROOT_DIR / "data" / "features_phase1.parquet"),
     assets: list[str] = ["SPY", "QQQ", "NVDA"],
     vol_window: int = 21,
-    ou_window: int = 60,
+    ou_window: int = 252,
+    frac_train_end: str = "2014-12-31",
 ) -> pd.DataFrame:
     """
     Construye y exporta la matriz completa de features para la Fase 1.
@@ -70,7 +78,7 @@ def build_phase1_dataset(
     base_spread = log_vix - log_vix3m
     features["vix_log_spread"] = base_spread
 
-    # Cointegración dinámica mediante Filtro de Kalman (Clase 7)
+    # Ratio dinámico ln(VIX) / ln(VIX3M) con Filtro de Kalman (Clase 7). No es un test de cointegración.
     vix_beta_k, vix_spread_k = kalman_beta_1d(log_vix, log_vix3m)
     features["vix_kalman_beta"] = vix_beta_k
     features["vix_kalman_spread"] = vix_spread_k
@@ -110,11 +118,12 @@ def build_phase1_dataset(
         features[f"{sym}_vol_gk_21d"] = garman_klass_volatility(open_, high, low, close, window=vol_window)
         features[f"{sym}_vol_yz_21d"] = yang_zhang_volatility(open_, high, low, close, window=vol_window)
 
-        # Volatilidad Condicional GJR-GARCH(1,1) Asimétrica
-        print(f"  Ajustando GJR-GARCH(1,1) para {sym}...")
-        garch_params, cond_vol = fit_gjr_garch(log_ret)
-        features[f"{sym}_gjr_cond_vol"] = cond_vol
-        print(f"  Parámetros {sym}: alpha={garch_params['alpha']:.4f}, leverage_gamma={garch_params['gamma_leverage']:.4f}, beta={garch_params['beta']:.4f}")
+        # Volatilidad Condicional GJR-GARCH(1,1) Asimétrica: pronóstico walk-forward (causal).
+        # El ajuste in-sample solo se usa para reportar los parámetros, no como feature.
+        print(f"  Ajustando GJR-GARCH(1,1) walk-forward para {sym}...")
+        features[f"{sym}_gjr_forecast_vol"] = rolling_gjr_garch_forecast(log_ret)
+        garch_params, _ = fit_gjr_garch(log_ret)
+        print(f"  Parámetros in-sample {sym}: alpha={garch_params['alpha']:.4f}, leverage_gamma={garch_params['gamma_leverage']:.4f}, beta={garch_params['beta']:.4f}")
 
         # CAPM Dinámico con Filtro de Kalman (Clase 4 y 7)
         if sym == "SPY":
@@ -130,12 +139,14 @@ def build_phase1_dataset(
             idio_vol = resid_capm.rolling(window=vol_window).std() * np.sqrt(252)
             features[f"{sym}_idiosyncratic_vol_21d"] = idio_vol
 
-        # Diferenciación Fraccionaria (Clase 6 - Memoria vs Estacionariedad)
-        print(f"  Calculando d* óptimo para {sym}...")
+        # Diferenciación Fraccionaria (Clase 6 - Memoria vs Estacionariedad), sobre el log-precio.
+        # d* se elige solo con el período de entrenamiento para no usar información futura.
+        print(f"  Calculando d* óptimo para {sym} (entrenamiento hasta {frac_train_end})...")
         best_d, summary_d, frac_series = find_optimal_d(
-            adj_close,
-            d_values=np.linspace(0.1, 0.9, 9),
-            adf_significance=0.05
+            np.log(adj_close).rename(sym),
+            d_values=np.linspace(0.05, 1.0, 20),
+            significance=0.05,
+            train_end=frac_train_end,
         )
         features[f"{sym}_fracdiff_dopt"] = frac_series
         features[f"{sym}_d_optimal"] = best_d
@@ -143,13 +154,16 @@ def build_phase1_dataset(
 
     # 4. Variance Risk Premium (VRP) Indicators (Implied vs Realized)
     print("\n[Fase 1.3] Calculando primas de riesgo de varianza (VRP)...")
-    # VRP para el benchmark SPY
-    features["vrp_vix_minus_spy_gk"] = vix - features["SPY_vol_gk_21d"]
-    features["vrp_vix_minus_spy_garch"] = vix - features["SPY_gjr_cond_vol"]
-    features["vrp_ratio_vix_garch"] = vix / np.maximum(features["SPY_gjr_cond_vol"], 1e-4)
+    # VRP ex-ante (proxy): VIX (30 días hacia adelante) contra volatilidad pasada o pronosticada.
+    # Se usa Yang-Zhang y no Garman-Klass: GK ignora el gap overnight y subestima la varianza
+    # close-to-close (~1.5x en SPY), lo que inflaba artificialmente la prima.
+    features["vrp_vix_minus_spy_yz"] = vix - features["SPY_vol_yz_21d"]
+    features["vrp_vix_minus_spy_garch"] = vix - features["SPY_gjr_forecast_vol"]
+    features["vrp_ratio_vix_garch"] = vix / np.maximum(features["SPY_gjr_forecast_vol"], 1e-4)
 
     # 5. Limpieza de filas iniciales por ventanas móviles
-    initial_valid_idx = features["ou_s_score"].dropna().index[0]
+    initial_valid_idx = max(features["ou_s_score"].dropna().index[0],
+                            features["SPY_gjr_forecast_vol"].dropna().index[0])
     features_clean = features.loc[initial_valid_idx:].copy()
 
     # 6. Exportación a Parquet

@@ -1,4 +1,4 @@
-"""Carga y alineación de datos para el póster Covered Call vs. volatilidad.
+"""Carga y alineación de datos del backtest Covered Call vs. volatilidad.
 
 Fuentes:
   - SPY y VIX: data/raw/datos_finanzas.xlsx (dato del profe).
@@ -43,11 +43,11 @@ def _parse_sheet(path: Path, sheet: str) -> tuple[pd.DataFrame, pd.Series]:
 
 
 def _yf(ticker: str, actions: bool = False) -> pd.DataFrame:
-    import yfinance as yf
-
     f = CACHE / f"yf_{ticker.replace('^', '')}.parquet"
     if f.exists():
         return pd.read_parquet(f)
+    import yfinance as yf  # solo hace falta si no hay cache
+
     d = yf.download(ticker, start=START, end=END, auto_adjust=False, progress=False, actions=actions)
     if isinstance(d.columns, pd.MultiIndex):
         d.columns = d.columns.get_level_values(0)
@@ -67,13 +67,15 @@ def load_panel() -> dict:
     qqq = q[["Open", "High", "Low", "Close", "Adj Close"]].dropna()
     qqq_div = q["Dividends"][q["Dividends"] > 0].rename("div") if "Dividends" in q else pd.Series(dtype=float)
     vxn = _yf("^VXN")["Close"].dropna()
-    irx = _yf("^IRX")["Close"].dropna() / 100.0  # tasa anual en decimal
+    irx = discount_to_continuous(_yf("^IRX")["Close"].dropna() / 100.0)
 
     vix = vix_px["Close"]
     idx = spy.index.intersection(qqq.index).intersection(vix.index).intersection(vxn.index)
     idx = idx[(idx >= START) & (idx < END)]
 
-    rf = irx.reindex(idx).ffill().bfill()
+    rf = irx.reindex(idx).ffill()  # sin bfill: no se rellena el pasado con datos futuros
+    if rf.isna().any():
+        raise ValueError("Falta la tasa libre de riesgo al inicio de la muestra")
     assets = {
         "SPY": dict(px=spy.reindex(idx), div=spy_div, iv=(vix.reindex(idx) / 100.0).rename("IV")),
         "QQQ": dict(px=qqq.reindex(idx), div=qqq_div, iv=(vxn.reindex(idx) / 100.0).rename("IV")),
@@ -81,6 +83,20 @@ def load_panel() -> dict:
     for a in assets.values():
         a["rf"] = rf
     return assets
+
+
+def discount_to_continuous(d: pd.Series, days: int = 91) -> pd.Series:
+    """^IRX cotiza la letra a 13 semanas como tasa de DESCUENTO (base 360). Se convierte a tasa
+    continua anual (base 365): precio = 1 - d * days/360,  r = -ln(precio) / (days/365)."""
+    return -np.log(1.0 - d * days / 360.0) / (days / 365.0)
+
+
+def trailing_div_yield(div: pd.Series, spot: float, date) -> float:
+    """Rendimiento por dividendo de los últimos 12 meses (información disponible en `date`)."""
+    if not len(div):
+        return 0.0
+    date = pd.Timestamp(date)
+    return float(div[(div.index > date - pd.Timedelta(days=365)) & (div.index <= date)].sum() / spot)
 
 
 def load_ibkr() -> pd.DataFrame:
@@ -112,6 +128,8 @@ def build_cycles(index: pd.DatetimeIndex) -> pd.DataFrame:
 
     t0 = vencimiento anterior (se vende al cierre), texp = vencimiento siguiente (liquidación).
     La señal usa información hasta la rueda previa a t0 (pos0 - 1).
+    h = ruedas hábiles del ciclo (para volatilidades realizadas, base 252);
+    cal = días corridos (para Black-Scholes con IV tipo VIX, que se anualiza en base 365).
     """
     months = pd.period_range(index[0], index[-1], freq="M")
     exps = []
@@ -127,7 +145,7 @@ def build_cycles(index: pd.DatetimeIndex) -> pd.DataFrame:
     rows = []
     for a, b in zip(exps[:-1], exps[1:]):
         p0, p1 = index.get_loc(a), index.get_loc(b)
-        rows.append(dict(t0=a, texp=b, pos0=p0, posT=p1, h=p1 - p0))
+        rows.append(dict(t0=a, texp=b, pos0=p0, posT=p1, h=p1 - p0, cal=(b - a).days))
     return pd.DataFrame(rows)
 
 

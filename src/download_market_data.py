@@ -91,13 +91,11 @@ def download_and_process_data(
     print("\nResumen inicial de NaNs por columna:")
     print(df_prices.isna().sum())
 
-    # 1. Forward-fill: completa días no operativos en bonos/macro con el último valor disponible
+    # 1. Forward-fill: completa días no operativos en bonos/macro con el último valor disponible.
+    #    No se usa backward-fill: rellenaría el pasado con valores futuros (lookahead).
     df_cleaned = df_prices.ffill()
 
-    # 2. Backward-fill por si la serie macro arrancó 1 o 2 días hábiles después
-    df_cleaned = df_cleaned.bfill()
-
-    # 3. Eliminar filas residuales con NaNs (por ejemplo si un activo empezó a cotizar después de START_DATE)
+    # 2. Eliminar filas residuales con NaNs (inicio de series que arrancan más tarde)
     df_cleaned = df_cleaned.dropna()
 
     print(f"\nDimensiones finales del dataset limpio: {df_cleaned.shape[0]} filas x {df_cleaned.shape[1]} columnas.")
@@ -133,7 +131,7 @@ def download_and_process_data(
         if df_ohlcv.index.tz is not None:
             df_ohlcv.index = df_ohlcv.index.tz_localize(None)
 
-        df_ohlcv = df_ohlcv.ffill().bfill().dropna()
+        df_ohlcv = df_ohlcv.ffill().dropna()
         ohlcv_path = Path(output_path).parent / "panel_ohlcv.parquet"
         df_ohlcv.to_parquet(ohlcv_path, engine="pyarrow")
         print(f"Dataset OHLCV completo guardado exitosamente en: {ohlcv_path}")

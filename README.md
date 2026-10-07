@@ -1,127 +1,91 @@
-# Financial Market & Macro Panel Data Pipeline
+# Covered Calls condicionadas por volatilidad — Finanzas Cuantitativas (FCEN-UBA)
 
-Pipeline en Python para la descarga automática, limpieza, alineación de series temporales y almacenamiento en formato columnar `.parquet` de un panel de activos financieros y variables macroeconómicas mediante `yfinance`.
+¿Conviene vender una covered call sobre SPY o QQQ cuando un pronóstico de volatilidad dice que la call está cara?
+El proyecto pronostica la volatilidad con 5 modelos walk-forward, decide cada mes si vender y a qué strike, y compara contra Buy & Hold y covered calls estáticas (2008–2026).
 
----
+**Resultados y conclusiones:** [`resultados/conclusiones.md`](resultados/conclusiones.md) · tablas en [`resultados/tablas.md`](resultados/tablas.md) · gráficos en `resultados/graficos/`.
 
-## 📁 Estructura del Repositorio
+## Datos y referencias (QR del póster)
+
+### Datos
+
+| Serie | Uso | Fuente |
+|---|---|---|
+| SPY (OHLC, dividendos) y VIX | subyacente e IV del índice | Excel de la cátedra (`data/raw/datos_finanzas.xlsx`) |
+| QQQ (OHLC, dividendos) y VXN | subyacente e IV del índice | Yahoo Finance (yfinance) |
+| T-bill 13 semanas (^IRX) | tasa libre de riesgo (convertida de tasa de descuento a tasa continua) | Yahoo Finance |
+| ETF PBP (Invesco S&P 500 BuyWrite) | validación del simulador contra un covered call real | Yahoo Finance |
+| Calls de SPX y SPY, jun–sep 2026 | calibración del skew IV(K)/VIX | Interactive Brokers (`data/raw/ibkr_calls_daily.parquet`) |
+| VIX3M, NVDA, panel 2007–2026 | features de la fase 1 | Yahoo Finance (`data/panel_ohlcv.parquet`) |
+
+Muestra del backtest: 224 ciclos mensuales fuera de muestra (ene-2008 a sep-2026), entre vencimientos estándar (tercer viernes), con 2007 como calentamiento.
+
+### Referencias
+
+- Bailey, D. y López de Prado, M. (2014). The Deflated Sharpe Ratio. *Journal of Portfolio Management*.
+- Bollerslev, T., Tauchen, G. y Zhou, H. (2009). Expected Stock Returns and Variance Risk Premia. *Review of Financial Studies*.
+- Corsi, F. (2009). A Simple Approximate Long-Memory Model of Realized Volatility. *Journal of Financial Econometrics*.
+- Garman, M. y Klass, M. (1980). On the Estimation of Security Price Volatilities from Historical Data. *Journal of Business*.
+- Glosten, L., Jagannathan, R. y Runkle, D. (1993). On the Relation between the Expected Value and the Volatility of the Nominal Excess Return on Stocks. *Journal of Finance*.
+- Hull, J. (2018). *Options, Futures and Other Derivatives*. Pearson.
+- Israelov, R. y Nielsen, L. (2015). Covered Calls Uncovered. *Financial Analysts Journal*.
+- J.P. Morgan/Reuters (1996). *RiskMetrics — Technical Document*.
+- López de Prado, M. (2018). *Advances in Financial Machine Learning*. Wiley.
+- Politis, D. y Romano, J. (1994). The Stationary Bootstrap. *Journal of the American Statistical Association*.
+- Whaley, R. (2002). Return and Risk of CBOE Buy Write Monthly Index. *Journal of Derivatives*.
+- Yang, D. y Zhang, Q. (2000). Drift-Independent Volatility Estimation Based on High, Low, Open, and Close Prices. *Journal of Business*.
+
+## Estructura
 
 ```text
 ├── data/
-│   └── panel_activos_macro.parquet  # Dataset consolidado y limpio en formato columnar
-├── docs/
-│   ├── esquema_tp.md                # 📄 Especificación metodológica y arquitectura del TP
-│   ├── clase*.pdf                   # Diapositivas teóricas y prácticas del curso
-│   └── clase*.html                  # Versiones exportadas en HTML
-├── notebooks/
-│   ├── clase2_practica_F.ipynb      # Práctica: No-arbitraje, smile de vol, Delta hedging
-│   ├── clase3_practica_alumnos.ipynb
-│   └── clase7_practica_A.ipynb
-├── src/
-│   ├── __init__.py
-│   └── download_market_data.py      # Script modular de descarga, limpieza y exportación
-├── .gitignore                       # Reglas de exclusión para Git y Python
-├── README.md                        # Documentación general del repositorio
-└── requirements.txt                 # Dependencias del proyecto
+│   ├── raw/                      # Excel de la cátedra (SPY, VIX), calls de IBKR (SPX/SPY, jun–sep 2026)
+│   ├── panel_ohlcv.parquet       # panel yfinance 2007–2026 (fase 1)
+│   └── features_phase1.parquet   # features de la fase 1 (generado)
+├── src/                          # Fase 1: ingeniería de features (Mundo P)
+│   ├── download_market_data.py   # descarga yfinance -> data/panel_*.parquet
+│   ├── volatility_estimators.py  # close-to-close, Parkinson, Garman-Klass, Yang-Zhang
+│   ├── garch_model.py            # GJR-GARCH(1,1): ajuste descriptivo y pronóstico walk-forward
+│   ├── kalman_filter.py          # regresión con coeficientes variables (q, r por MLE)
+│   ├── ou_process.py             # Ornstein-Uhlenbeck del spread ln(VIX) − ln(VIX3M), s-score
+│   ├── fracdiff.py               # diferenciación fraccionaria (FFD) con d* sin lookahead
+│   ├── build_features_phase1.py  # orquesta la fase 1
+│   └── plot_phase1.py            # gráficos de diagnóstico de la fase 1
+├── poster/
+│   ├── src/                      # Backtest de covered calls
+│   │   ├── data.py               # panel SPY/QQQ, IV (VIX/VXN), tasa, dividendos, ciclos de vencimiento
+│   │   ├── vol_models.py         # Rolling, EWMA, GJR-GARCH, HAR-RV, Kalman, ensamble (walk-forward)
+│   │   ├── strategy.py           # Black-Scholes, skew, señal, simulación, métricas, DSR
+│   │   ├── figures.py            # gráficos del backtest
+│   │   ├── checks.py             # chequeos de cordura (usados por los tests)
+│   │   └── build.py              # corre todo -> resultados/
+│   ├── data/                     # cache de yfinance y pronósticos
+│   └── overleaf/, notebooks/     # póster y notebook de la versión ANTERIOR (no actualizados)
+├── resultados/                   # salida del backtest: conclusiones, tablas, results.json, gráficos
+├── tests/test_core.py            # tests de fórmulas y de ausencia de lookahead
+└── docs/                         # consigna (esquema_tp.md) y material de clase
 ```
 
-> 📖 Para consultar la especificación académica completa, hipótesis, modelos y fases de desarrollo, ver [**`docs/esquema_tp.md`**](docs/esquema_tp.md).
+## Cómo correr
 
----
-
-## ⚙️ Configuración y Variables
-
-Todas las variables configurables se encuentran al inicio de [`src/download_market_data.py`](src/download_market_data.py):
-
-```python
-# 1. Panel de activos de interés
-TICKERS = ["SPY", "NVDA", "AAPL", "MSFT", "QQQ"]
-
-# 2. Variables macroeconómicas / de mercado:
-MACRO_TICKERS = {
-    "^VIX": "VIX",       # CBOE Volatility Index (volatilidad implícita 30d)
-    "^VIX3M": "VIX3M",   # CBOE 3-Month Volatility Index
-    "^IRX": "IRX",       # 13-Week Treasury Bill Rate (% anualizado)
-}
-
-# 3. Rango de fechas (formato 'YYYY-MM-DD')
-START_DATE = "2020-01-01"
-END_DATE = None  # None toma la fecha actual
-
-# 4. Archivo de salida (por defecto en data/panel_activos_macro.parquet)
-ROOT_DIR = Path(__file__).resolve().parent.parent
-OUTPUT_FILE = str(ROOT_DIR / "data" / "panel_activos_macro.parquet")
-```
-
----
-
-## 🛠️ Instalación y Requisitos
-
-Se recomienda utilizar **Python 3.10+**.
-
-Instalar las librerías necesarias con `pip`:
+Python 3.10+.
 
 ```bash
 pip install -r requirements.txt
+python src/build_features_phase1.py      # fase 1 (usa data/panel_ohlcv.parquet)
+python src/plot_phase1.py
+python -m poster.src.build --refresh     # backtest; sin --refresh reutiliza los pronósticos cacheados
+python -m pytest tests -q
 ```
 
-O con el lanzador de Python en Windows:
+`src/download_market_data.py` vuelve a descargar el panel de yfinance (requiere internet). El backtest usa el Excel de la cátedra para SPY y VIX, y el cache de `poster/data/` para QQQ, VXN, ^IRX y PBP.
 
-```powershell
-py -3.13 -m pip install -r requirements.txt
-```
+## Convenciones del backtest
 
----
-
-## 🚀 Ejecución
-
-Para ejecutar la descarga y actualizar el archivo `.parquet`:
-
-```powershell
-py -3.13 src/download_market_data.py
-```
-
-### Salida esperada por consola
-
-```text
-Descargando datos desde 2020-01-01 hasta 2026-09-30...
-Símbolos solicitados (8): ['SPY', 'NVDA', 'AAPL', 'MSFT', 'QQQ', '^VIX', '^VIX3M', '^IRX']
-[*********************100%***********************]  8 of 8 completed
-
-Dimensiones finales del dataset limpio: 1696 filas x 8 columnas.
-Período cubierto: 2020-01-02 a 2026-09-29
-Dataset guardado exitosamente en: .../data/panel_activos_macro.parquet
-```
-
----
-
-## 📊 Cómo Cargar y Usar los Datos en tus Notebooks / Scripts
-
-El archivo `.parquet` preserva los tipos de datos nativos de fecha y punto flotante con compresión eficiente:
-
-```python
-import pandas as pd
-
-# Cargar dataset
-df = pd.read_parquet("data/panel_activos_macro.parquet")
-
-# Precios y variables
-print(df.head())
-
-# Cálculo de retornos diarios de activos
-returns = df[["SPY", "NVDA", "AAPL", "MSFT", "QQQ"]].pct_change().dropna()
-
-# Comparación con niveles de volatilidad (VIX)
-analysis = returns.join(df[["VIX", "VIX3M", "IRX"]])
-print(analysis.describe())
-```
-
----
-
-## 🧹 Tratamiento de Datos y Limpieza
-
-1. **Precios Ajustados (`Adj Close`)**: Considera splits y dividendos en acciones y ETFs.
-2. **Desfasaje de Calendarios (Feriados Bursátiles vs. Renta Fija)**:
-   - Los bonos de corto plazo (`^IRX`) y las acciones (`SPY`, `AAPL`, etc.) operan bajo distintos calendarios de feriados (SIFMA vs. NYSE).
-   - Se utiliza **Forward Fill (`ffill`)** para mantener la tasa vigente sin generar sesgos de anticipación (*lookahead bias*).
-   - Se aplica `dropna()` para remover los períodos en que algún activo nuevo aún no había comenzado su cotización.
+- **Decisión y ejecución:** la decisión usa información hasta la rueda anterior al vencimiento (t0−1). Se vende al cierre de t0 y se liquida al cierre del vencimiento siguiente.
+- **Anualización:** volatilidades realizadas y pronosticadas en base 252 ruedas; IV tipo VIX en base 365 días corridos. Las comparaciones se hacen en desvío por ciclo.
+- **Precio de la call:** Black-Scholes con IV(K) = IV_índice · (a + b·x), x = ln(K/S)/(IV·√T). El skew se calibra con calls de SPX de IBKR.
+- **Señal:** se vende si σ̂ < IV de la call al strike elegido.
+- **Ejercicio anticipado:** se modela antes de cada ex-dividendo (opciones americanas de SPY y QQQ).
+- **Tasa libre de riesgo:** ^IRX convertida de tasa de descuento a tasa continua.
+- **Validación:** el CC estático simulado se valida contra el ETF real PBP (BuyWrite).
